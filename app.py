@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import plotly.express as px
+import plotly.graph_objects as go
 
 # ضبط إعدادات الصفحة
 st.set_page_config(
@@ -15,13 +17,6 @@ st.markdown("""
     .main { background-color: #f8fafc; }
     .stApp header { background-color: #0f172a; }
     h1, h2, h3 { color: #0f172a; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    .metric-card {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 15px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -83,31 +78,101 @@ menu = st.sidebar.radio("القائمة الرئيسية:", [
 
 # ----------------- 1. DASHBOARD -----------------
 if menu == "📊 لوحة التحكم (Dashboard)":
-    st.title("❄️ شركة Ecovair للتكييف والتوريدات العمومية")
-    st.subheader("الملخص المالي والتحليلي للشركة")
-    
-    df_j = st.session_state.journal
-    revenues = df_j[df_j["كود الدائن"] == 4110]["المبلغ"].sum()
-    purchases = df_j[df_j["كود المدين"] == 5120]["المبلغ"].sum()
-    salaries = df_j[df_j["كود المدين"] == 5210]["المبلغ"].sum()
-    total_expenses = purchases + salaries
-    net_profit = revenues - total_expenses
+    st.title("❄️ لوحة التحكم المالية - شركة Ecovair")
+    st.caption("متابعة حية للتدفقات المالية، المبيعات، الحسابات والإشعارات")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("إجمالي الإيرادات (المبيعات)", f"{revenues:,.2f} EGP")
-    c2.metric("إجمالي المشتريات والمصروفات", f"{total_expenses:,.2f} EGP")
-    c3.metric("صافي الربح الحالي", f"{net_profit:,.2f} EGP", delta=f"{net_profit:,.0f}")
-    c4.metric("عدد العمليات المسجلة", len(df_j))
+    df_j = st.session_state.journal.copy()
+    df_j['التاريخ'] = pd.to_datetime(df_j['التاريخ'])
+    today_str = str(datetime.date.today())
+
+    # حساب المؤشرات الرئيسية (KPIs)
+    tot_sales = df_j[df_j["كود الدائن"] == 4110]["المبلغ"].sum()
+    tot_purchases = df_j[df_j["كود المدين"] == 5120]["المبلغ"].sum()
+    tot_salaries = df_j[df_j["كود المدين"] == 5210]["المبلغ"].sum()
+    tot_rent = df_j[df_j["كود المدين"] == 5220]["المبلغ"].sum() if 5220 in df_j["كود المدين"].values else 0
+    
+    tot_expenses = tot_purchases + tot_salaries + tot_rent
+    net_profit = tot_sales - tot_expenses
+    
+    bank_in = df_j[df_j["كود المدين"] == 1120]["المبلغ"].sum()
+    bank_out = df_j[df_j["كود الدائن"] == 1120]["المبلغ"].sum()
+    current_bank = bank_in - bank_out
+
+    cash_in = df_j[df_j["كود المدين"] == 1110]["المبلغ"].sum()
+    cash_out = df_j[df_j["كود الدائن"] == 1110]["المبلغ"].sum()
+    current_cash = cash_in - cash_out
+    
+    today_invoices = df_j[df_j["التاريخ"].astype(str) == today_str]
+    today_count = len(today_invoices)
+
+    # الصف الأول: البطاقات
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("💰 إجمالي المبيعات", f"{tot_sales:,.0f} ج.م")
+    m2.metric("🛒 إجمالي المشتريات", f"{tot_purchases:,.0f} ج.م")
+    m3.metric("📈 صافي الربح", f"{net_profit:,.0f} ج.م", delta=f"{net_profit:,.0f}")
+    m4.metric("🏦 رصيد البنك والنقدية", f"{(current_bank + current_cash):,.0f} ج.م")
+    m5.metric("📄 فواتير اليوم", f"{today_count} فاتورة")
 
     st.markdown("---")
-    st.subheader("📋 أحدث العمليات المالية المسجلة")
-    st.dataframe(df_j.tail(5), use_container_width=True)
+
+    # الصف الثاني: الرسوم البيانية
+    col_chart1, col_chart2 = st.columns([2, 1])
+
+    with col_chart1:
+        st.subheader("📊 التدفقات المالية (المبيعات مقابل المصروفات)")
+        df_j['الشهر'] = df_j['التاريخ'].dt.strftime('%Y-%m')
+        monthly_sales = df_j[df_j["كود الدائن"] == 4110].groupby('الشهر')['المبلغ'].sum().reset_index(name='المبيعات')
+        monthly_exp = df_j[df_j["كود المدين"].isin([5120, 5210, 5220])].groupby('الشهر')['المبلغ'].sum().reset_index(name='المصروفات')
+        merged_monthly = pd.merge(monthly_sales, monthly_exp, on='الشهر', how='outer').fillna(0)
+        
+        fig_bar = go.Figure()
+        fig_bar.add_trace(go.Bar(x=merged_monthly['الشهر'], y=merged_monthly['المبيعات'], name='المبيعات', marker_color='#10b981'))
+        fig_bar.add_trace(go.Bar(x=merged_monthly['الشهر'], y=merged_monthly['المصروفات'], name='المصروفات والمشتريات', marker_color='#ef4444'))
+        fig_bar.update_layout(barmode='group', height=320, margin=dict(l=20, r=20, t=30, b=20))
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    with col_chart2:
+        st.subheader("🍩 توزيع الهيكل المالي والتكاليف")
+        expense_labels = ['مشتريات خامات ومعدات', 'رواتب وأجور', 'إيجار وتشغيل']
+        expense_values = [tot_purchases, tot_salaries, tot_rent]
+        fig_donut = px.pie(names=expense_labels, values=expense_values, hole=0.6, color_discrete_sequence=['#3b82f6', '#8b5cf6', '#f59e0b'])
+        fig_donut.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10))
+        st.plotly_chart(fig_donut, use_container_width=True)
+
+    st.markdown("---")
+
+    # الصف الثالث: منحنى النمو والتنبيهات
+    col_bottom1, col_bottom2 = st.columns([2, 1])
+
+    with col_bottom1:
+        st.subheader("📈 منحنى نمو الأرباح التراكمي")
+        df_j_sorted = df_j.sort_values('التاريخ').copy()
+        df_j_sorted['ربح_العملية'] = 0.0
+        df_j_sorted.loc[df_j_sorted['كود الدائن'] == 4110, 'ربح_العملية'] = df_j_sorted['المبلغ']
+        df_j_sorted.loc[df_j_sorted['كود المدين'].isin([5120, 5210, 5220]), 'ربح_العملية'] = -df_j_sorted['المبلغ']
+        df_j_sorted['الربح_التراكمي'] = df_j_sorted['ربح_العملية'].cumsum()
+        
+        fig_line = px.line(df_j_sorted, x='التاريخ', y='الربح_التراكمي', markers=True)
+        fig_line.update_traces(line_color='#2563eb', line_width=3)
+        fig_line.update_layout(height=260, margin=dict(l=20, r=20, t=20, b=20))
+        st.plotly_chart(fig_line, use_container_width=True)
+
+    with col_bottom2:
+        st.subheader("🔔 مركز الإشعارات والتنبيهات")
+        rec_due = df_j[df_j["كود المدين"] == 1210]["المبلغ"].sum() - df_j[df_j["كود الدائن"] == 1210]["المبلغ"].sum()
+        pay_due = df_j[df_j["كود الدائن"] == 2110]["المبلغ"].sum() - df_j[df_j["كود المدين"] == 2110]["المبلغ"].sum()
+
+        if rec_due > 0:
+            st.warning(f"⚠️ **مستحقات عملاء:** يوجد مبلغ **{rec_due:,.0f} ج.م** آجل لدى العملاء لم يتم تحصيله.")
+        else:
+            st.success("✅ جميع مستحقات العملاء محصلة بالكامل.")
+
+        if pay_due > 0:
+            st.info(f"📌 **التزامات موردين:** عليك سداد **{pay_due:,.0f} ج.م** للموردين.")
 
 # ----------------- 2. RECORD ENTRY -----------------
 elif menu == "📝 تسجيل قيد يومية جديد":
     st.title("📝 تسجيل قيد محاسبي جديد")
-    st.info("نظام القيد المزدوج التلقائي لشركة Ecovair")
-
     detailed_accounts = chart_df[chart_df["التصنيف"] == "تفصيلي"]
     
     with st.form("new_entry_form"):
@@ -143,12 +208,11 @@ elif menu == "📝 تسجيل قيد يومية جديد":
                     "الملاحظات": notes
                 }
                 st.session_state.journal = pd.concat([st.session_state.journal, pd.DataFrame([new_row])], ignore_index=True)
-                st.success(f"✅ تم حفظ القيد {entry_num} بنجاح وتحديث كافة القوائم المالية!")
+                st.success(f"✅ تم حفظ القيد {entry_num} بنجاح!")
 
 # ----------------- 3. JOURNAL & LEDGER -----------------
 elif menu == "📖 دفتر اليومية والأستاذ":
     st.title("📖 دفتر اليومية العامة وحسابات الأستاذ")
-    
     tab1, tab2 = st.tabs(["اليومية العامة", "كشف حساب أستاذ تفصيلي"])
     
     with tab1:
@@ -177,7 +241,6 @@ elif menu == "📖 دفتر اليومية والأستاذ":
 elif menu == "⚖️ ميزان المراجعة":
     st.title("⚖️ ميزان المراجعة بالإجماليات والأرصدة")
     df_j = st.session_state.journal
-    
     tb_data = []
     tot_d, tot_c = 0, 0
     
@@ -192,59 +255,32 @@ elif menu == "⚖️ ميزان المراجعة":
         
         if debits > 0 or credits > 0:
             tb_data.append({
-                "الكود": code,
-                "اسم الحساب": name,
-                "النوع": acc_type,
-                "إجمالي المدين": debits,
-                "إجمالي الدائن": credits,
-                "الرصيد الصافي": balance
+                "الكود": code, "اسم الحساب": name, "النوع": acc_type,
+                "إجمالي المدين": debits, "إجمالي الدائن": credits, "الرصيد الصافي": balance
             })
             tot_d += debits
             tot_c += credits
             
-    tb_df = pd.DataFrame(tb_data)
-    st.dataframe(tb_df, use_container_width=True)
-    st.success(f"⚖️ إجمالي الحركة المدينة: {tot_d:,.2f} EGP | إجمالي الحركة الدائنة: {tot_c:,.2f} EGP (الميزان متزن تلقائياً)")
+    st.dataframe(pd.DataFrame(tb_data), use_container_width=True)
+    st.success(f"⚖️ إجمالي الحركة المدينة: {tot_d:,.2f} EGP | إجمالي الحركة الدائنة: {tot_c:,.2f} EGP")
 
 # ----------------- 5. FINANCIAL STATEMENTS -----------------
 elif menu == "📈 القوائم المالية (Income & Balance Sheet)":
     st.title("📈 القوائم المالية الختامية لشركة Ecovair")
-    
     df_j = st.session_state.journal
-    
     col_inc, col_bal = st.columns(2)
     
     with col_inc:
-        st.subheader("📄 قائمة الدخل (Income Statement)")
+        st.subheader("📄 قائمة الدخل")
         rev = df_j[df_j["كود الدائن"] == 4110]["المبلغ"].sum()
         exp = df_j[df_j["كود المدين"].isin([5120, 5210, 5220, 5270])]["المبلغ"].sum()
-        net = rev - exp
-        
-        st.write(f"**إجمالي الإيرادات والمبيعات:** {rev:,.2f} EGP")
-        st.write(f"**تكلفة المشتريات والمصروفات:** {exp:,.2f} EGP")
-        st.markdown("---")
-        st.metric("صافي الربح / الخسارة", f"{net:,.2f} EGP")
+        st.metric("صافي الربح / الخسارة", f"{(rev - exp):,.2f} EGP")
 
     with col_bal:
-        st.subheader("🏛️ الميزانية العمومية (Balance Sheet)")
-        
+        st.subheader("🏛️ الميزانية العمومية")
         bank = df_j[df_j["كود المدين"] == 1120]["المبلغ"].sum() - df_j[df_j["كود الدائن"] == 1120]["المبلغ"].sum()
         receivables = df_j[df_j["كود المدين"] == 1210]["المبلغ"].sum() - df_j[df_j["كود الدائن"] == 1210]["المبلغ"].sum()
-        total_assets = bank + receivables
-        
-        payables = df_j[df_j["كود الدائن"] == 2110]["المبلغ"].sum() - df_j[df_j["كود المدين"] == 2110]["المبلغ"].sum()
-        capital = df_j[df_j["كود الدائن"] == 3110]["المبلغ"].sum()
-        total_liab_equity = payables + capital + net
-        
-        st.write(f"**الأصول المتداولة (البنك والعملاء):** {total_assets:,.2f} EGP")
-        st.write(f"**الالتزامات (الموردون):** {payables:,.2f} EGP")
-        st.write(f"**حقوق الملكية (رأس المال + أرباح الفترة):** {capital + net:,.2f} EGP")
-        st.markdown("---")
-        st.write(f"**إجمالي الأصول:** {total_assets:,.2f} EGP")
-        st.write(f"**إجمالي الالتزامات وحقوق الملكية:** {total_liab_equity:,.2f} EGP")
-        
-        if abs(total_assets - total_liab_equity) < 0.01:
-            st.success("✅ الميزانية متزنة تماماً (الأصول = الالتزامات + حقوق الملكية)")
+        st.metric("إجمالي الأصول المتداولة", f"{(bank + receivables):,.2f} EGP")
 
 # ----------------- 6. CHART OF ACCOUNTS -----------------
 elif menu == "🌳 شجرة الحسابات":

@@ -77,99 +77,293 @@ menu = st.sidebar.radio("القائمة الرئيسية:", [
 ])
 
 # ----------------- 1. DASHBOARD -----------------
+# ----------------- 1. DASHBOARD -----------------
 if menu == "📊 لوحة التحكم (Dashboard)":
     st.title("❄️ لوحة التحكم المالية - شركة Ecovair")
-    st.caption("متابعة حية للتدفقات المالية، المبيعات، الحسابات والإشعارات")
 
     df_j = st.session_state.journal.copy()
     df_j['التاريخ'] = pd.to_datetime(df_j['التاريخ'])
+
+    # ===================== فلتر الشهور =====================
+    df_j['الشهر_رقم'] = df_j['التاريخ'].dt.to_period('M')
+    available_months = sorted(df_j['الشهر_رقم'].unique().astype(str).tolist())
+    month_options = ["كل الشهور"] + available_months
+
+    col_filter1, col_filter2 = st.columns([1, 3])
+    with col_filter1:
+        selected_month = st.selectbox("🗓️ فلتر بالشهر:", month_options)
+
+    if selected_month != "كل الشهور":
+        df_j = df_j[df_j['الشهر_رقم'].astype(str) == selected_month]
+
     today_str = str(datetime.date.today())
 
-    # حساب المؤشرات الرئيسية (KPIs)
-    tot_sales = df_j[df_j["كود الدائن"] == 4110]["المبلغ"].sum()
-    tot_purchases = df_j[df_j["كود المدين"] == 5120]["المبلغ"].sum()
-    tot_salaries = df_j[df_j["كود المدين"] == 5210]["المبلغ"].sum()
-    tot_rent = df_j[df_j["كود المدين"] == 5220]["المبلغ"].sum() if 5220 in df_j["كود المدين"].values else 0
-    
-    tot_expenses = tot_purchases + tot_salaries + tot_rent
-    net_profit = tot_sales - tot_expenses
-    
-    bank_in = df_j[df_j["كود المدين"] == 1120]["المبلغ"].sum()
-    bank_out = df_j[df_j["كود الدائن"] == 1120]["المبلغ"].sum()
-    current_bank = bank_in - bank_out
+    # ===================== KPIs =====================
+    tot_sales      = df_j[df_j["كود الدائن"] == 4110]["المبلغ"].sum()
+    tot_purchases  = df_j[df_j["كود المدين"] == 5120]["المبلغ"].sum()
+    tot_salaries   = df_j[df_j["كود المدين"] == 5210]["المبلغ"].sum()
+    tot_rent       = df_j[df_j["كود المدين"] == 5220]["المبلغ"].sum() if 5220 in df_j["كود المدين"].values else 0
+    tot_expenses   = tot_purchases + tot_salaries + tot_rent
+    net_profit     = tot_sales - tot_expenses
 
-    cash_in = df_j[df_j["كود المدين"] == 1110]["المبلغ"].sum()
-    cash_out = df_j[df_j["كود الدائن"] == 1110]["المبلغ"].sum()
-    current_cash = cash_in - cash_out
-    
-    today_invoices = df_j[df_j["التاريخ"].astype(str) == today_str]
-    today_count = len(today_invoices)
+    bank_in        = df_j[df_j["كود المدين"] == 1120]["المبلغ"].sum()
+    bank_out       = df_j[df_j["كود الدائن"] == 1120]["المبلغ"].sum()
+    current_bank   = bank_in - bank_out
 
-    # الصف الأول: البطاقات
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("💰 إجمالي المبيعات", f"{tot_sales:,.0f} ج.م")
-    m2.metric("🛒 إجمالي المشتريات", f"{tot_purchases:,.0f} ج.م")
-    m3.metric("📈 صافي الربح", f"{net_profit:,.0f} ج.م", delta=f"{net_profit:,.0f}")
-    m4.metric("🏦 رصيد البنك والنقدية", f"{(current_bank + current_cash):,.0f} ج.م")
-    m5.metric("📄 فواتير اليوم", f"{today_count} فاتورة")
+    cash_in        = df_j[df_j["كود المدين"] == 1110]["المبلغ"].sum()
+    cash_out       = df_j[df_j["كود الدائن"] == 1110]["المبلغ"].sum()
+    current_cash   = cash_in - cash_out
 
-    st.markdown("---")
+    today_invoices = df_j[df_j["التاريخ"].astype(str).str[:10] == today_str]
+    today_count    = len(today_invoices)
 
-    # الصف الثاني: الرسوم البيانية
-    col_chart1, col_chart2 = st.columns([2, 1])
+    rec_due = (df_j[df_j["كود المدين"] == 1210]["المبلغ"].sum()
+             - df_j[df_j["كود الدائن"] == 1210]["المبلغ"].sum())
+    pay_due = (df_j[df_j["كود الدائن"] == 2110]["المبلغ"].sum()
+             - df_j[df_j["كود المدين"] == 2110]["المبلغ"].sum())
 
-    with col_chart1:
-        st.subheader("📊 التدفقات المالية (المبيعات مقابل المصروفات)")
-        df_j['الشهر'] = df_j['التاريخ'].dt.strftime('%Y-%m')
-        monthly_sales = df_j[df_j["كود الدائن"] == 4110].groupby('الشهر')['المبلغ'].sum().reset_index(name='المبيعات')
-        monthly_exp = df_j[df_j["كود المدين"].isin([5120, 5210, 5220])].groupby('الشهر')['المبلغ'].sum().reset_index(name='المصروفات')
-        merged_monthly = pd.merge(monthly_sales, monthly_exp, on='الشهر', how='outer').fillna(0)
-        
+    # ===================== CSS للكروت =====================
+    st.markdown("""
+    <style>
+    .kpi-card {
+        background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+        border-radius: 16px;
+        padding: 20px 16px;
+        text-align: center;
+        color: white;
+        margin-bottom: 8px;
+        box-shadow: 0 4px 15px rgba(15,23,42,0.25);
+    }
+    .kpi-card .kpi-icon  { font-size: 1.6rem; margin-bottom: 4px; }
+    .kpi-card .kpi-value { font-size: 1.45rem; font-weight: 700; color: #38bdf8; }
+    .kpi-card .kpi-label { font-size: 0.78rem; color: #94a3b8; margin-top: 3px; }
+    .kpi-card .kpi-delta { font-size: 0.75rem; color: #4ade80; margin-top: 4px; }
+
+    .section-card {
+        background: white;
+        border-radius: 16px;
+        padding: 18px 16px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+        margin-bottom: 12px;
+    }
+    .section-title {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: #0f172a;
+        margin-bottom: 12px;
+    }
+
+    .alert-card {
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+    .alert-warn  { background: #fef3c7; color: #92400e; border-left: 4px solid #f59e0b; }
+    .alert-info  { background: #dbeafe; color: #1e40af; border-left: 4px solid #3b82f6; }
+    .alert-ok    { background: #dcfce7; color: #166534; border-left: 4px solid #22c55e; }
+
+    .progress-bar-bg {
+        background: #e2e8f0;
+        border-radius: 6px;
+        height: 8px;
+        margin: 4px 0 10px 0;
+    }
+    .progress-bar-fill {
+        height: 8px;
+        border-radius: 6px;
+        background: linear-gradient(90deg, #38bdf8, #0ea5e9);
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ===================== ROW 1: KPI Cards =====================
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    def kpi(col, icon, value, label, delta=None):
+        delta_html = f'<div class="kpi-delta">▲ {delta}</div>' if delta else ""
+        col.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-icon">{icon}</div>
+            <div class="kpi-value">{value}</div>
+            <div class="kpi-label">{label}</div>
+            {delta_html}
+        </div>""", unsafe_allow_html=True)
+
+    kpi(c1, "💰", f"{tot_sales/1000:.0f}K ج.م",  "إجمالي المبيعات")
+    kpi(c2, "🛒", f"{tot_purchases/1000:.0f}K ج.م","إجمالي المشتريات")
+    kpi(c3, "📈", f"{net_profit/1000:.0f}K ج.م",  "صافي الربح",
+        delta=f"+{net_profit/1000:.0f}K" if net_profit > 0 else None)
+    kpi(c4, "🏦", f"{(current_bank+current_cash)/1000:.0f}K ج.م","رصيد البنك والنقدية")
+    kpi(c5, "📄", f"{today_count}", "فواتير اليوم")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ===================== ROW 2: Charts =====================
+    col_left, col_mid, col_right = st.columns([2.2, 1.6, 1.4])
+
+    # --- Inflow Bar Chart (زي الصورة) ---
+    with col_left:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">📊 التدفقات الشهرية (مبيعات / مصروفات)</div>', unsafe_allow_html=True)
+
+        df_all = st.session_state.journal.copy()
+        df_all['التاريخ'] = pd.to_datetime(df_all['التاريخ'])
+        df_all['الشهر'] = df_all['التاريخ'].dt.strftime('%b')
+        month_order = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+        df_all['الشهر'] = pd.Categorical(df_all['الشهر'], categories=month_order, ordered=True)
+
+        monthly_s = df_all[df_all["كود الدائن"]==4110].groupby('الشهر',observed=True)['المبلغ'].sum().reindex(month_order, fill_value=0)
+        monthly_e = df_all[df_all["كود المدين"].isin([5120,5210,5220])].groupby('الشهر',observed=True)['المبلغ'].sum().reindex(month_order, fill_value=0)
+
         fig_bar = go.Figure()
-        fig_bar.add_trace(go.Bar(x=merged_monthly['الشهر'], y=merged_monthly['المبيعات'], name='المبيعات', marker_color='#10b981'))
-        fig_bar.add_trace(go.Bar(x=merged_monthly['الشهر'], y=merged_monthly['المصروفات'], name='المصروفات والمشتريات', marker_color='#ef4444'))
-        fig_bar.update_layout(barmode='group', height=320, margin=dict(l=20, r=20, t=30, b=20))
+        fig_bar.add_trace(go.Bar(
+            x=month_order, y=monthly_s.values, name='مبيعات',
+            marker_color=['#38bdf8' if m == (df_all['الشهر'].max() if len(df_all)>0 else 'Jan') else '#1e3a5f' for m in month_order],
+            width=0.4
+        ))
+        fig_bar.add_trace(go.Bar(
+            x=month_order, y=monthly_e.values, name='مصروفات',
+            marker_color='#94a3b8', width=0.4, opacity=0.6
+        ))
+        fig_bar.update_layout(
+            barmode='group', height=240, paper_bgcolor='white', plot_bgcolor='white',
+            margin=dict(l=10, r=10, t=10, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1, xanchor="right", x=1, font=dict(size=11)),
+            xaxis=dict(showgrid=False, tickfont=dict(size=10)),
+            yaxis=dict(showgrid=True, gridcolor='#f1f5f9', tickfont=dict(size=10))
+        )
         st.plotly_chart(fig_bar, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    with col_chart2:
-        st.subheader("🍩 توزيع الهيكل المالي والتكاليف")
-        expense_labels = ['مشتريات خامات ومعدات', 'رواتب وأجور', 'إيجار وتشغيل']
-        expense_values = [tot_purchases, tot_salaries, tot_rent]
-        fig_donut = px.pie(names=expense_labels, values=expense_values, hole=0.6, color_discrete_sequence=['#3b82f6', '#8b5cf6', '#f59e0b'])
-        fig_donut.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10))
+    # --- Budget Donut (زي الصورة) ---
+    with col_mid:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">💳 الميزانية والتوزيع</div>', unsafe_allow_html=True)
+
+        labels  = ['مشتريات', 'رواتب', 'إيجار', 'رصيد']
+        values  = [tot_purchases, tot_salaries, tot_rent, max(current_bank+current_cash, 0)]
+        colors  = ['#0ea5e9', '#1e3a5f', '#38bdf8', '#94a3b8']
+
+        fig_donut = go.Figure(go.Pie(
+            labels=labels, values=values,
+            hole=0.62, marker_colors=colors,
+            textinfo='percent', textfont_size=11,
+            hoverinfo='label+value'
+        ))
+        fig_donut.update_layout(
+            height=200, paper_bgcolor='white',
+            margin=dict(l=0, r=0, t=10, b=0),
+            showlegend=False,
+            annotations=[dict(text=f"<b>{(current_bank+current_cash)/1000:.1f}K</b><br>رصيد",
+                              x=0.5, y=0.5, font_size=13, showarrow=False, font_color='#0f172a')]
+        )
         st.plotly_chart(fig_donut, use_container_width=True)
 
-    st.markdown("---")
+        # Progress bars
+        inflow_pct  = min(int(tot_sales/(tot_sales+tot_expenses+1)*100), 100)
+        outflow_pct = 100 - inflow_pct
+        st.markdown(f"""
+        <div style="font-size:0.78rem; color:#64748b; margin-bottom:2px;">
+            تدفق داخل <span style="float:left;font-weight:700;color:#0ea5e9;">{inflow_pct}%</span>
+        </div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:{inflow_pct}%"></div></div>
+        <div style="font-size:0.78rem; color:#64748b; margin-bottom:2px;">
+            تدفق خارج <span style="float:left;font-weight:700;color:#94a3b8;">{outflow_pct}%</span>
+        </div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:{outflow_pct}%;background:linear-gradient(90deg,#94a3b8,#64748b);"></div></div>
+        """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # الصف الثالث: منحنى النمو والتنبيهات
-    col_bottom1, col_bottom2 = st.columns([2, 1])
+    # --- Costs Donut (زي الصورة) ---
+    with col_right:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">📦 التكاليف</div>', unsafe_allow_html=True)
 
-    with col_bottom1:
-        st.subheader("📈 منحنى نمو الأرباح التراكمي")
-        df_j_sorted = df_j.sort_values('التاريخ').copy()
-        df_j_sorted['ربح_العملية'] = 0.0
-        df_j_sorted.loc[df_j_sorted['كود الدائن'] == 4110, 'ربح_العملية'] = df_j_sorted['المبلغ']
-        df_j_sorted.loc[df_j_sorted['كود المدين'].isin([5120, 5210, 5220]), 'ربح_العملية'] = -df_j_sorted['المبلغ']
-        df_j_sorted['الربح_التراكمي'] = df_j_sorted['ربح_العملية'].cumsum()
-        
-        fig_line = px.line(df_j_sorted, x='التاريخ', y='الربح_التراكمي', markers=True)
-        fig_line.update_traces(line_color='#2563eb', line_width=3)
-        fig_line.update_layout(height=260, margin=dict(l=20, r=20, t=20, b=20))
+        cost_labels = ['مشتريات', 'رواتب', 'إيجار']
+        cost_vals   = [tot_purchases, tot_salaries, tot_rent]
+        cost_colors = ['#0f172a', '#0ea5e9', '#38bdf8']
+
+        fig_cost = go.Figure(go.Pie(
+            labels=cost_labels, values=cost_vals,
+            hole=0.6, marker_colors=cost_colors,
+            textinfo='none', hoverinfo='label+percent'
+        ))
+        fig_cost.update_layout(
+            height=160, paper_bgcolor='white',
+            margin=dict(l=0, r=0, t=10, b=0),
+            showlegend=False,
+            annotations=[dict(text=f"<b>{tot_expenses/1000:.1f}K</b>",
+                              x=0.5, y=0.5, font_size=13, showarrow=False, font_color='#0f172a')]
+        )
+        st.plotly_chart(fig_cost, use_container_width=True)
+
+        for lbl, val, clr in zip(cost_labels, cost_vals, cost_colors):
+            pct = int(val / (tot_expenses+1) * 100)
+            st.markdown(f"""
+            <div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:4px;">
+                <span><span style="color:{clr};font-size:0.9rem;">●</span> {lbl}</span>
+                <span style="color:#64748b;">{pct}% &nbsp; <b>{val/1000:.0f}K</b></span>
+            </div>""", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ===================== ROW 3: Line Chart + Alerts =====================
+    col_line, col_alerts = st.columns([2.5, 1.5])
+
+    with col_line:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">📈 منحنى مقارنة التكاليف والإيرادات</div>', unsafe_allow_html=True)
+
+        df_all2 = st.session_state.journal.copy()
+        df_all2['التاريخ'] = pd.to_datetime(df_all2['التاريخ'])
+        df_all2_sorted = df_all2.sort_values('التاريخ').copy()
+        df_all2_sorted['مبيعات_تراكمي']   = df_all2_sorted['المبلغ'].where(df_all2_sorted['كود الدائن']==4110, 0).cumsum()
+        df_all2_sorted['مصروفات_تراكمي'] = df_all2_sorted['المبلغ'].where(df_all2_sorted['كود المدين'].isin([5120,5210,5220]), 0).cumsum()
+
+        fig_line = go.Figure()
+        fig_line.add_trace(go.Scatter(
+            x=df_all2_sorted['التاريخ'], y=df_all2_sorted['مبيعات_تراكمي'],
+            name='إيرادات', mode='lines', fill='tozeroy',
+            line=dict(color='#0ea5e9', width=2.5),
+            fillcolor='rgba(14,165,233,0.08)'
+        ))
+        fig_line.add_trace(go.Scatter(
+            x=df_all2_sorted['التاريخ'], y=df_all2_sorted['مصروفات_تراكمي'],
+            name='مصروفات', mode='lines', fill='tozeroy',
+            line=dict(color='#94a3b8', width=2, dash='dot'),
+            fillcolor='rgba(148,163,184,0.06)'
+        ))
+        fig_line.update_layout(
+            height=220, paper_bgcolor='white', plot_bgcolor='white',
+            margin=dict(l=10, r=10, t=10, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1, xanchor="right", x=1, font=dict(size=11)),
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=True, gridcolor='#f1f5f9')
+        )
         st.plotly_chart(fig_line, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    with col_bottom2:
-        st.subheader("🔔 مركز الإشعارات والتنبيهات")
-        rec_due = df_j[df_j["كود المدين"] == 1210]["المبلغ"].sum() - df_j[df_j["كود الدائن"] == 1210]["المبلغ"].sum()
-        pay_due = df_j[df_j["كود الدائن"] == 2110]["المبلغ"].sum() - df_j[df_j["كود المدين"] == 2110]["المبلغ"].sum()
+    with col_alerts:
+        st.markdown('<div class="section-card" style="height:100%">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">🔔 التنبيهات</div>', unsafe_allow_html=True)
 
         if rec_due > 0:
-            st.warning(f"⚠️ **مستحقات عملاء:** يوجد مبلغ **{rec_due:,.0f} ج.م** آجل لدى العملاء لم يتم تحصيله.")
+            st.markdown(f'<div class="alert-card alert-warn">⚠️ مستحقات عملاء غير محصلة<br><b>{rec_due:,.0f} ج.م</b></div>', unsafe_allow_html=True)
         else:
-            st.success("✅ جميع مستحقات العملاء محصلة بالكامل.")
+            st.markdown('<div class="alert-card alert-ok">✅ جميع مستحقات العملاء محصلة</div>', unsafe_allow_html=True)
 
         if pay_due > 0:
-            st.info(f"📌 **التزامات موردين:** عليك سداد **{pay_due:,.0f} ج.م** للموردين.")
+            st.markdown(f'<div class="alert-card alert-info">📌 التزامات موردين مستحقة<br><b>{pay_due:,.0f} ج.م</b></div>', unsafe_allow_html=True)
 
+        if net_profit > 0:
+            st.markdown(f'<div class="alert-card alert-ok">📈 الشركة رابحة<br><b>+{net_profit:,.0f} ج.م</b></div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="alert-card alert-warn">📉 خسارة صافية<br><b>{net_profit:,.0f} ج.م</b></div>', unsafe_allow_html=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
 # ----------------- 2. RECORD ENTRY -----------------
 elif menu == "📝 تسجيل قيد يومية جديد":
     st.title("📝 تسجيل قيد محاسبي جديد")
